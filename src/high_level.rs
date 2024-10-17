@@ -6,46 +6,79 @@ use derive_more::{Deref, From};
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Deref, From)]
-pub struct SessionSecretKey(pub ScalarNonZero);
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Deref, From)]
-pub struct GlobalSecretKey(pub ScalarNonZero);
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Deref, From)]
-pub struct SessionPublicKey(pub GroupElement);
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Deref, From)]
-pub struct GlobalPublicKey(pub GroupElement);
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Deref, From)]
-pub struct Pseudonym {
-    pub value: GroupElement,
-}
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Deref, From)]
-pub struct DataPoint {
-    pub value: GroupElement,
-}
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Deref, From, Serialize, Deserialize)]
-pub struct EncryptedPseudonym {
-    pub value: ElGamal,
-}
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Deref, From, Serialize, Deserialize)]
-pub struct EncryptedDataPoint {
-    pub value: ElGamal,
-}
 pub type Context = String;
 #[derive(Clone, Eq, Hash, PartialEq, Debug, Deref, From, Serialize, Deserialize)]
 pub struct PseudonymizationContext(pub Context);
 #[derive(Clone, Eq, Hash, PartialEq, Debug, Deref, From, Serialize, Deserialize)]
 pub struct EncryptionContext(pub Context);
+
+#[derive(Clone, Eq, PartialEq, Debug, Deref, From)]
+pub struct Pseudonym {
+    #[deref]
+    pub value: GroupElement,
+    pub context: PseudonymizationContext,
+}
+#[derive(Clone, Eq, PartialEq, Debug, Deref, From)]
+pub struct DataPoint {
+    pub value: GroupElement,
+}
+#[derive(Clone, Eq, PartialEq, Debug, Deref, From, Serialize, Deserialize)]
+pub struct EncryptedPseudonym {
+    #[deref]
+    pub value: ElGamal,
+    pub pseudo_context: PseudonymizationContext,
+    pub enc_context: EncryptionContext,
+}
+#[derive(Clone, Eq, PartialEq, Debug, Deref, From, Serialize, Deserialize)]
+pub struct EncryptedDataPoint {
+    #[deref]
+    pub value: ElGamal,
+    pub enc_context: EncryptionContext,
+}
+
+#[derive(Clone, Eq, PartialEq, Debug, Deref, From)]
+pub struct SessionSecretKey {
+    #[deref]
+    pub value: ScalarNonZero,
+    pub context: EncryptionContext
+}
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Deref, From)]
+pub struct GlobalSecretKey(pub ScalarNonZero);
+#[derive(Clone, Eq, PartialEq, Debug, Deref, From)]
+pub struct SessionPublicKey{
+    #[deref]
+    pub value: GroupElement,
+    pub context: EncryptionContext
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Deref, From)]
+pub struct GlobalPublicKey(pub GroupElement);
+
 pub type Secret = String;
 #[derive(Clone, Eq, Hash, PartialEq, Debug, Deref, From)]
 pub struct PseudonymizationSecret(pub Secret);
 #[derive(Clone, Eq, Hash, PartialEq, Debug, Deref, From)]
 pub struct EncryptionSecret(pub Secret);
 impl Pseudonym {
-    pub fn new(value: GroupElement) -> Self {
-        Pseudonym { value }
+    pub fn new(value: GroupElement, context: &PseudonymizationContext) -> Self {
+        Pseudonym { value, context: context.clone() }
     }
-    pub fn random<R: RngCore + CryptoRng>(rng: &mut R) -> Self {
-        Pseudonym::new(GroupElement::random(rng))
+    pub fn random<R: RngCore + CryptoRng>(context: &PseudonymizationContext, rng: &mut R) -> Self {
+        Pseudonym::new(GroupElement::random(rng), &context)
+    }
+    pub fn encode(&self) -> String {
+        let prefix = self.context.0.to_owned();
+        let value = self.value.encode_to_hex();
+        format!("{prefix}#{value}")
+    }
+    pub fn decode(s: &str) -> Option<Self> {
+        let parts: Vec<_> = s.split("#").collect();
+        if parts.len() != 2 {
+            return None;
+        }
+        let context = parts[0];
+        let value = parts[1];
+        Some(Pseudonym::new(GroupElement::decode_from_hex(value)?, &PseudonymizationContext::from(Context::from(context))))
     }
 }
 impl DataPoint {
@@ -57,13 +90,29 @@ impl DataPoint {
     }
 }
 impl EncryptedPseudonym {
-    pub fn new(value: ElGamal) -> Self {
-        EncryptedPseudonym { value }
+    pub fn new(value: ElGamal, pseudo_context: PseudonymizationContext, enc_context: EncryptionContext) -> Self {
+        EncryptedPseudonym { value, pseudo_context, enc_context }
+    }
+    pub fn encode(&self) -> String {
+        let prefix = self.pseudo_context.0.to_owned();
+        let value = self.value.encode_to_base64();
+        let postfix = self.enc_context.0.to_owned();
+        format!("{prefix}#{value}#{postfix}")
+    }
+    pub fn decode(s: &str) -> Option<Self> {
+        let parts: Vec<_> = s.split("#").collect();
+        if parts.len() != 3 {
+            return None;
+        }
+        let pseudo_context = parts[0];
+        let value = parts[1];
+        let enc_context = parts[2];
+        Some(EncryptedPseudonym::new(ElGamal::decode_from_base64(value)?, PseudonymizationContext::from(Context::from(pseudo_context)), EncryptionContext::from(Context::from(enc_context))))
     }
 }
 impl EncryptedDataPoint {
-    pub fn new(value: ElGamal) -> Self {
-        EncryptedDataPoint { value }
+    pub fn new(value: ElGamal, enc_context: EncryptionContext) -> Self {
+        EncryptedDataPoint { value, enc_context }
     }
 }
 
@@ -83,7 +132,7 @@ pub fn make_session_keys(
     let k = make_decryption_factor(encryption_secret, context);
     let sk = *k * global.deref();
     let pk = sk * G;
-    (SessionPublicKey(pk), SessionSecretKey(sk))
+    (SessionPublicKey{ value: pk, context: context.clone() }, SessionSecretKey { value: sk, context: context.clone() })
 }
 
 /// Encrypt a pseudonym
@@ -92,12 +141,12 @@ pub fn encrypt_pseudonym<R: RngCore + CryptoRng>(
     pk: &SessionPublicKey,
     rng: &mut R,
 ) -> EncryptedPseudonym {
-    EncryptedPseudonym::new(encrypt(p, pk, rng))
+    EncryptedPseudonym::new(encrypt(p, pk, rng), p.context.clone(), pk.context.clone())
 }
 
 /// Decrypt an encrypted pseudonym
 pub fn decrypt_pseudonym(p: &EncryptedPseudonym, sk: &SessionSecretKey) -> Pseudonym {
-    Pseudonym::new(decrypt(p, sk))
+    Pseudonym::new(decrypt(p, sk), &p.pseudo_context)
 }
 
 /// Encrypt a data point
@@ -106,7 +155,7 @@ pub fn encrypt_data<R: RngCore + CryptoRng>(
     pk: &SessionPublicKey,
     rng: &mut R,
 ) -> EncryptedDataPoint {
-    EncryptedDataPoint::new(encrypt(data, pk, rng))
+    EncryptedDataPoint::new(encrypt(data, pk, rng), pk.context.clone())
 }
 
 /// Decrypt an encrypted data point
@@ -126,7 +175,7 @@ pub fn rerandomize_encrypted_pseudonym<R: RngCore + CryptoRng>(
     rng: &mut R,
 ) -> EncryptedPseudonym {
     let r = ScalarNonZero::random(rng);
-    EncryptedPseudonym::new(rerandomize(&encrypted.value, &r))
+    EncryptedPseudonym::new(rerandomize(&encrypted.value, &r), encrypted.pseudo_context.clone(), encrypted.enc_context.clone())
 }
 
 #[cfg(not(feature = "elgamal2"))]
@@ -136,7 +185,7 @@ pub fn rerandomize_encrypted<R: RngCore + CryptoRng>(
     rng: &mut R,
 ) -> EncryptedDataPoint {
     let r = ScalarNonZero::random(rng);
-    EncryptedDataPoint::new(rerandomize(&encrypted.value, &r))
+    EncryptedDataPoint::new(rerandomize(&encrypted.value, &r), encrypted.enc_context.clone())
 }
 
 #[derive(Eq, PartialEq, Clone, Copy, Debug)]
@@ -172,8 +221,52 @@ impl Rekey2Factors {
     }
 }
 
-pub type PseudonymizationInfo = RSK2Factors;
-pub type RekeyInfo = Rekey2Factors;
+#[derive(Eq, PartialEq, Clone, Debug)]
+pub struct Reshuffle2Contexts {
+    pub from: PseudonymizationContext,
+    pub to: PseudonymizationContext,
+}
+#[derive(Eq, PartialEq, Clone, Debug)]
+pub struct Rekey2Contexts {
+    pub from: EncryptionContext,
+    pub to: EncryptionContext,
+}
+#[derive(Eq, PartialEq, Clone, Debug)]
+pub struct RSK2Contexts {
+    pub pseudo: Reshuffle2Contexts,
+    pub enc: Rekey2Contexts,
+}
+
+impl Reshuffle2Contexts {
+    pub fn reverse(self) -> Self {
+        Reshuffle2Contexts {
+            from: self.to,
+            to: self.from,
+        }
+    }
+}
+impl Rekey2Contexts {
+    pub fn reverse(self) -> Self {
+        Rekey2Contexts {
+            from: self.to,
+            to: self.from,
+        }
+    }
+}
+
+
+#[derive(Clone, Eq, PartialEq, Debug, Deref, From)]
+pub struct PseudonymizationInfo {
+    #[deref]
+    pub factors: RSK2Factors,
+    pub contexts: RSK2Contexts,
+}
+#[derive(Clone, Eq, PartialEq, Debug, Deref, From)]
+pub struct RekeyInfo {
+    #[deref]
+    pub factors: Rekey2Factors,
+    pub contexts: Rekey2Contexts,
+}
 impl PseudonymizationInfo {
     pub fn new(
         from_pseudo_context: &PseudonymizationContext,
@@ -190,15 +283,30 @@ impl PseudonymizationInfo {
             to: s_to,
         };
         let rekey_factors = RekeyInfo::new(from_enc_context, to_enc_context, encryption_secret);
-        RSK2Factors {
-            s: reshuffle_factors,
-            k: rekey_factors,
+        PseudonymizationInfo {
+            factors: RSK2Factors {
+                s: reshuffle_factors,
+                k: rekey_factors.factors,
+            },
+            contexts: RSK2Contexts {
+                pseudo: Reshuffle2Contexts {
+                    from: from_pseudo_context.clone(),
+                    to: to_pseudo_context.clone(),
+                },
+                enc: rekey_factors.contexts,
+            },
         }
     }
     pub fn reverse(self) -> Self {
-        RSK2Factors {
-            s: self.s.reverse(),
-            k: self.k.reverse(),
+        PseudonymizationInfo {
+            factors: RSK2Factors {
+                s: self.s.reverse(),
+                k: self.k.reverse(),
+            },
+            contexts: RSK2Contexts {
+                pseudo: self.contexts.pseudo.reverse(),
+                enc: self.contexts.enc.reverse(),
+            },
         }
     }
 }
@@ -210,33 +318,42 @@ impl RekeyInfo {
     ) -> Self {
         let k_from = make_decryption_factor(&encryption_secret, &from_session);
         let k_to = make_decryption_factor(&encryption_secret, &to_session);
-        Rekey2Factors {
-            from: k_from,
-            to: k_to,
+        RekeyInfo {
+            factors: Rekey2Factors {
+                from: k_from,
+                to: k_to,
+            },
+            contexts: Rekey2Contexts {
+                from: from_session.clone(),
+                to: to_session.clone(),
+            },
         }
     }
 }
-impl From<PseudonymizationInfo> for RekeyInfo {
-    fn from(x: PseudonymizationInfo) -> Self {
-        x.k
+impl From<&PseudonymizationInfo> for RekeyInfo {
+    fn from(x: &PseudonymizationInfo) -> Self {
+        RekeyInfo {
+            factors: x.factors.k,
+            contexts: x.contexts.enc.clone(),
+        }
     }
 }
 
 /// Pseudonymize an encrypted pseudonym, from one context to another context
 pub fn pseudonymize(
     p: &EncryptedPseudonym,
-    pseudonymization_info: &PseudonymizationInfo,
+    info: &PseudonymizationInfo,
 ) -> EncryptedPseudonym {
     EncryptedPseudonym::new(rsk2(
         &p.value,
-        &pseudonymization_info.s.from,
-        &pseudonymization_info.s.to,
-        &pseudonymization_info.k.from,
-        &pseudonymization_info.k.to,
-    ))
+        &info.s.from,
+        &info.s.to,
+        &info.k.from,
+        &info.k.to,
+    ), info.contexts.pseudo.to.clone(), info.contexts.enc.to.clone())
 }
 
 /// Rekey an encrypted data point, encrypted with one session key, to be decrypted by another session key
-pub fn rekey(p: &EncryptedDataPoint, rekey_info: &RekeyInfo) -> EncryptedDataPoint {
-    EncryptedDataPoint::new(rekey2(&p.value, &rekey_info.from, &rekey_info.to))
+pub fn rekey(p: &EncryptedDataPoint, info: &RekeyInfo) -> EncryptedDataPoint {
+    EncryptedDataPoint::new(rekey2(&p.value, &info.from, &info.to), info.contexts.to.clone())
 }
