@@ -1,3 +1,6 @@
+//! High-level data types for pseudonyms and data points, and their encrypted versions,
+//! Including several ways to encode and decode them.
+
 use crate::internal::arithmetic::GroupElement;
 use crate::low_level::elgamal::{ElGamal, ELGAMAL_LENGTH};
 use derive_more::{Deref, From};
@@ -34,13 +37,13 @@ impl Pseudonym {
         self.value.encode_to_hex()
     }
     pub fn decode(bytes: &[u8; 32]) -> Option<Self> {
-        GroupElement::decode(bytes).map(|x| Self::from_point(x))
+        GroupElement::decode(bytes).map(Self::from_point)
     }
     pub fn decode_from_slice(slice: &[u8]) -> Option<Self> {
-        GroupElement::decode_from_slice(slice).map(|x| Self::from_point(x))
+        GroupElement::decode_from_slice(slice).map(Self::from_point)
     }
     pub fn decode_from_hex(hex: &str) -> Option<Self> {
-        GroupElement::decode_from_hex(hex).map(|x| Self::from_point(x))
+        GroupElement::decode_from_hex(hex).map(Self::from_point)
     }
     pub fn from_hash(hash: &[u8; 64]) -> Self {
         Self::from_point(GroupElement::decode_from_hash(hash))
@@ -66,13 +69,13 @@ impl DataPoint {
         self.value.encode_to_hex()
     }
     pub fn decode(bytes: &[u8; 32]) -> Option<Self> {
-        GroupElement::decode(bytes).map(|x| Self::from_point(x))
+        GroupElement::decode(bytes).map(Self::from_point)
     }
     pub fn decode_from_slice(slice: &[u8]) -> Option<Self> {
-        GroupElement::decode_from_slice(slice).map(|x| Self::from_point(x))
+        GroupElement::decode_from_slice(slice).map(Self::from_point)
     }
     pub fn decode_from_hex(hex: &str) -> Option<Self> {
-        GroupElement::decode_from_hex(hex).map(|x| Self::from_point(x))
+        GroupElement::decode_from_hex(hex).map(Self::from_point)
     }
     pub fn from_hash(hash: &[u8; 64]) -> Self {
         Self::from_point(GroupElement::decode_from_hash(hash))

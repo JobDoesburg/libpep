@@ -1,6 +1,5 @@
 use commandy_macros::*;
-use rand_core::OsRng;
-
+use libpep::distributed::key_blinding::{make_distributed_global_keys, SafeScalar};
 use libpep::high_level::contexts::{EncryptionContext, PseudonymizationContext, TranscryptionInfo};
 use libpep::high_level::data_types::{Encrypted, EncryptedPseudonym, Pseudonym};
 use libpep::high_level::keys::{
@@ -9,6 +8,8 @@ use libpep::high_level::keys::{
 };
 use libpep::high_level::ops::{decrypt, encrypt, encrypt_global, rerandomize, transcrypt};
 use libpep::internal::arithmetic::{ScalarNonZero, ScalarTraits};
+use rand_core::OsRng;
+use std::cmp::Ordering;
 
 #[derive(Command, Debug, Default)]
 #[command("generate-global-keys")]
@@ -110,6 +111,14 @@ struct TranscryptToGlobal {
     args: Vec<String>,
 }
 
+#[derive(Command, Debug, Default)]
+#[command("setup-distributed")]
+#[description("Creates the secrets needed for distributed systems.")]
+struct SetupDistributedSystems {
+    #[positional("n", 1, 1)]
+    args: Vec<String>,
+}
+
 #[derive(Command, Debug)]
 enum Sub {
     GenerateGlobalKeys(GenerateGlobalKeys),
@@ -124,6 +133,7 @@ enum Sub {
     Transcrypt(Transcrypt),
     TranscryptFromGlobal(TranscryptFromGlobal),
     TranscryptToGlobal(TranscryptToGlobal),
+    SetupDistributedSystems(SetupDistributedSystems),
 }
 
 #[derive(Command, Debug, Default)]
@@ -165,17 +175,18 @@ fn main() {
         }
         Some(Sub::PseudonymFromOrigin(arg)) => {
             let origin = arg.args[0].as_bytes();
-            let pseudonym: Pseudonym;
-            if origin.len() > 16 {
-                eprintln!("Origin identifier must be 16 bytes long.");
-                std::process::exit(1);
-            } else if origin.len() < 16 {
-                let mut padded = [0u8; 16];
-                padded[..origin.len()].copy_from_slice(origin);
-                pseudonym = Pseudonym::from_bytes(&padded);
-            } else {
-                pseudonym = Pseudonym::from_bytes(origin.try_into().unwrap());
-            }
+            let pseudonym: Pseudonym = match origin.len().cmp(&16) {
+                Ordering::Greater => {
+                    eprintln!("Origin identifier must be 16 bytes long.");
+                    std::process::exit(1);
+                }
+                Ordering::Less => {
+                    let mut padded = [0u8; 16];
+                    padded[..origin.len()].copy_from_slice(origin);
+                    Pseudonym::from_bytes(&padded)
+                }
+                Ordering::Equal => Pseudonym::from_bytes(origin.try_into().unwrap()),
+            };
             eprint!("Pseudonym: ");
             println!("{}", &pseudonym.encode_to_hex());
         }
@@ -284,6 +295,19 @@ fn main() {
             let transcrypted = transcrypt(&ciphertext, &transcryption_info);
             eprint!("Transcrypted ciphertext: ");
             println!("{}", &transcrypted.encode_to_base64());
+        }
+        Some(Sub::SetupDistributedSystems(arg)) => {
+            let n = arg.args[0].parse::<usize>().unwrap();
+            let (global_public_key, blinded_secret, blinding_factors) =
+                make_distributed_global_keys(n, &mut rng);
+            eprint!("Public global key: ");
+            println!("{}", &global_public_key.encode_to_hex());
+            eprint!("Blinded secret key: ");
+            println!("{}", &blinded_secret.encode_to_hex());
+            eprintln!("Blinding factors (KEEP SECRET): ");
+            for factor in blinding_factors.iter() {
+                println!("{} ", factor.encode_to_hex());
+            }
         }
         None => {
             eprintln!("No subcommand given.");

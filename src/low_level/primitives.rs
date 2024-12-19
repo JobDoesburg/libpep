@@ -1,10 +1,7 @@
+//! (n)-PEP primitives for rekeying, reshuffling, rerandomization and combined versions.
+
 use crate::internal::arithmetic::*;
 use crate::low_level::elgamal::*;
-
-/// ElGamal ciphertext on which the three PEP operations can be performed:
-/// - [rerandomize]: change encrypted representation, same contents when decrypted;
-/// - [reshuffle]: change encrypted representation, different contents when decrypted;
-/// - [rekey]: change encrypted representation, can be decrypted by a different key.
 
 /// Change encrypted representation using [ScalarNonZero] `r`, same contents when decrypted.
 #[cfg(feature = "elgamal3")]
@@ -111,7 +108,7 @@ pub fn rrsk2(
 ) -> ElGamal {
     let s = s_from.invert() * s_to;
     let k = k_from.invert() * k_to;
-    rrsk(m, &r, &s, &k)
+    rrsk(m, r, &s, &k)
 }
 #[cfg(not(feature = "elgamal3"))]
 pub fn rrsk2(
@@ -125,5 +122,5 @@ pub fn rrsk2(
 ) -> ElGamal {
     let s = s_from.invert() * s_to;
     let k = k_from.invert() * k_to;
-    rrsk(m, gy, &r, &s, &k)
+    rrsk(m, gy, r, &s, &k)
 }

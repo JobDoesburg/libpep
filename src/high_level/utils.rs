@@ -1,3 +1,5 @@
+//! Utilities for deriving factors from contexts and secrets.
+
 use crate::high_level::contexts::*;
 use crate::high_level::keys::{EncryptionSecret, PseudonymizationSecret, Secret};
 use crate::internal::arithmetic::*;
@@ -54,9 +56,9 @@ pub fn make_rekey_factor(secret: &EncryptionSecret, context: &EncryptionContext)
 #[cfg(feature = "legacy-pep-repo-compatible")]
 fn make_factor(secret: &Secret, typ: u32, audience_type: u32, context: &Context) -> ScalarNonZero {
     let mut hasher_inner = Sha256::default(); // Use HMAC to prevent length extension attack
-    hasher_inner.update(&typ.to_be_bytes());
+    hasher_inner.update(typ.to_be_bytes());
     hasher_inner.update(audience_type.to_be_bytes());
-    hasher_inner.update(&context.as_bytes());
+    hasher_inner.update(context.as_bytes());
     let result_inner = hasher_inner.finalize();
 
     let mut hmac = Hmac::<Sha512>::new_from_slice(secret).unwrap();

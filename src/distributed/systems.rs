@@ -1,3 +1,5 @@
+//! High-level `PEPSystem`s and `PEPClient`s.
+
 use crate::distributed::key_blinding::*;
 use crate::high_level::contexts::*;
 use crate::high_level::data_types::*;
@@ -6,7 +8,6 @@ use crate::high_level::ops::*;
 use crate::high_level::utils::make_rekey_factor;
 use rand_core::{CryptoRng, RngCore};
 
-/// PEP SYSTEM
 #[derive(Clone)]
 pub struct PEPSystem {
     pub(crate) pseudonymisation_secret: PseudonymizationSecret,
@@ -26,7 +27,7 @@ impl PEPSystem {
         }
     }
     pub fn session_key_share(&self, context: &EncryptionContext) -> SessionKeyShare {
-        let k = make_rekey_factor(&self.rekeying_secret, &context);
+        let k = make_rekey_factor(&self.rekeying_secret, context);
         make_session_key_share(&k.0, &self.blinding_factor)
     }
     pub fn rekey_info(
@@ -95,10 +96,10 @@ impl PEPSystem {
 
     pub fn transcrypt_batch<R: RngCore + CryptoRng>(
         &self,
-        encrypted: &mut Box<[(Box<[EncryptedPseudonym]>, Box<[EncryptedDataPoint]>)]>,
+        encrypted: &mut Box<[EncryptedEntityDataPair]>,
         transcryption_info: &PseudonymizationInfo,
         rng: &mut R,
-    ) -> Box<[(Box<[EncryptedPseudonym]>, Box<[EncryptedDataPoint]>)]> {
+    ) -> Box<[EncryptedEntityDataPair]> {
         transcrypt_batch(encrypted, transcryption_info, rng)
     }
 }
